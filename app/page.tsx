@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Toaster, toast } from "sonner";
+import { RecorderPanel } from "@/components/recorder-panel";
+import { ReviewPanel } from "@/components/review-panel";
 import { PDFPage } from "@/components/pdf-page";
 import { demoLesson } from "@/lib/demo";
 import type { Lesson, KnowledgeNode, Segment } from "@/lib/types";
@@ -65,7 +67,7 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState("n1");
   const [pageNumber, setPageNumber] = useState(1);
   const [dialog, setDialog] = useState<
-    "import" | "settings" | "library" | "export" | "edit" | null
+    "import" | "settings" | "library" | "export" | "edit" | "record" | "review" | null
   >(null);
   const [busy, setBusy] = useState("");
   const [status, setStatus] = useState<Status>({
@@ -88,6 +90,7 @@ export default function Home() {
   const [playTime, setPlayTime] = useState(0);
   const player = useRef<HTMLAudioElement>(null);
   const clipEnd = useRef<number | null>(null);
+  const recordingLock = useCallback((locked: boolean) => setBusy(locked ? "录音尚未保存，请在录音窗口完成操作。" : ""), []);
   const lesson = record.lesson;
   const selected =
     lesson.nodes.find((n) => n.id === selectedId) || lesson.nodes[0];
@@ -127,7 +130,7 @@ export default function Home() {
         try {
           id = localStorage.getItem("lecture-atlas-active") || "";
         } catch {}
-        const last = items.find((x) => x.lesson.id === id);
+        const last = items.find((x) => x.lesson.id === id) || items.find((x) => x.lesson.id === demoLesson.id);
         if (last) activate(last);
       })
       .catch((e) => toast.error(e.message));
@@ -515,8 +518,9 @@ export default function Home() {
             课间 <span>LECTURE ATLAS</span>
           </strong>
         </div>
-        <span className="edition">学习工作台 · FIRST EDITION</span>
+        <span className="edition">学习工作台 · SECOND EDITION</span>
         <div className="header-actions">
+          <Button variant="ghost" disabled={!!busy} onClick={() => setDialog("review")}>复习与自测</Button>
           <Button
             variant="ghost"
             disabled={!!busy}
@@ -527,6 +531,7 @@ export default function Home() {
           </Button>
           <Button
             variant="ghost"
+            disabled={!!busy}
             onClick={() => {
               void refreshStatus();
               setDialog("settings");
@@ -774,6 +779,7 @@ export default function Home() {
             )}
             {lesson.mode !== "demo" && (
               <div className="material-actions">
+                <Button variant="outline" size="sm" disabled={!!busy} onClick={() => { player.current?.pause(); setDialog("record"); }}>录制课堂</Button>
                 <label className="file-button">
                   {record.audio ? "更换录音" : "添加录音"}
                   <input
@@ -959,6 +965,32 @@ export default function Home() {
         }}
       >
         <DialogContent className="atlas-dialog" showCloseButton={!busy}>
+          {dialog === "record" && <>
+            <DialogHeader><DialogTitle>录制课堂 · {lesson.title}</DialogTitle><DialogDescription>录制完成后可试听、下载并保存到当前课次。</DialogDescription></DialogHeader>
+            <RecorderPanel hasMaterial={!!record.audio || !!lesson.segments.length} onLock={recordingLock} onAttach={async file => {
+              if (file.size > 24_000_000 || !file.size) throw new Error("音频无效或超过 24 MB，请先下载压缩。");
+              const updated = { ...lesson, audioName: file.name, segments: [], nodes: localOutline(lesson.pages, []), mode: "local" as const, review: {}, updatedAt: new Date().toISOString() };
+              await persist({ ...record, audio: file, lesson: updated });
+              setSelectedId(updated.nodes[0]?.id || "");
+              toast.success("录音已保存。可点击 AI 整理本节课进行转录。");
+            }} />
+          </>}
+          {dialog === "review" && <>
+            <DialogHeader><DialogTitle>复习与自测</DialogTitle><DialogDescription>跨课次回忆知识点，记录掌握情况，并追溯课堂出处。</DialogDescription></DialogHeader>
+            <ReviewPanel records={[record, ...library.filter(item => item.lesson.id !== lesson.id)].filter(item => item.lesson.mode !== "demo" || library.every(saved => saved.lesson.mode === "demo"))} onSave={async next => {
+              setBusy("正在保存复习进度…");
+              try {
+                await saveLesson(next);
+                setLibrary(items => [next, ...items.filter(item => item.lesson.id !== next.lesson.id)]);
+                if (next.lesson.id === lesson.id) setRecord(next);
+              } finally { setBusy(""); }
+            }} onSource={(next, node) => {
+              activate(next);
+              setSelectedId(node.id);
+              setPageNumber(node.pageNumbers[0] || next.lesson.pages[0]?.number || 1);
+              setDialog(null);
+            }} />
+          </>}
           {dialog === "import" && (
             <>
               <DialogHeader>

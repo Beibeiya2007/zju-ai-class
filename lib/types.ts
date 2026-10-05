@@ -27,4 +27,13 @@ export type Lesson = {
   documentType?: "pdf" | "pptx";
   audioName?: string;
   updatedAt: string;
+  review?: Record<string, ReviewProgress>;
+};
+
+export type ReviewProgress = {
+  source: string;
+  rating: 'again' | 'hard' | 'known';
+  streak: number;
+  reviewedAt: string;
+  dueAt: string;
 };

@@ -1008,3 +1008,27 @@ label:has(input:disabled) {
     max-height: none;
   }
 }
+
+/* Second edition: capture and recall */
+.review-panel, .recorder-panel { display: grid; gap: 18px; }
+.review-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.review-filters label:last-child { grid-column: 1 / -1; }
+.review-panel label, .recorder-panel label { display: grid; gap: 7px; font-size: 13px; color: #4b5b73; }
+.review-panel select, .review-panel input, .review-panel textarea, .recorder-panel select { width: 100%; border: 1px solid #cdd6e3; border-radius: 8px; padding: 10px 12px; background: white; color: #172c49; }
+.review-panel textarea { resize: vertical; margin: 12px 0; }
+.review-card { padding: 20px; border: 1px solid #d8e2ed; border-radius: 14px; background: #f8fafc; overflow-wrap: anywhere; }
+.review-card h3 { font-size: 21px; line-height: 1.5; margin: 14px 0 8px; }
+.review-answer { display: grid; gap: 12px; margin-top: 16px; }
+.review-answer > p { white-space: pre-wrap; line-height: 1.8; }
+.review-grades, .review-navigation { display: flex; flex-wrap: wrap; gap: 8px; }
+.review-navigation { justify-content: space-between; margin-top: 18px; }
+.review-empty { text-align: center; padding: 28px 12px; }
+.review-empty p, .review-answer small { color: #52657d; }
+.recording-status { display: flex; gap: 15px; flex-wrap: wrap; align-items: center; padding: 20px; color: #a12c35; background: #fff1f2; border-radius: 12px; }
+.recording-result { display: grid; gap: 16px; overflow-wrap: anywhere; }
+.recording-result audio { width: 100%; }
+.recording-result a { color: #245ec4; text-decoration: underline; }
+.recorder-panel .replace-confirm { display: flex; align-items: flex-start; line-height: 1.6; }
+.replace-confirm input { flex-shrink: 0; margin-top: 4px; }
+.discard-confirm { background: #fff1f2; padding: 14px; border-radius: 10px; }
+@media (max-width: 720px) { .review-filters { grid-template-columns: 1fr; } .review-card { padding: 14px; } .topbar { flex-wrap: wrap; } .header-actions { flex-wrap: wrap; } }
