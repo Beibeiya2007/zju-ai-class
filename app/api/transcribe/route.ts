@@ -49,7 +49,6 @@ export async function POST(request: Request) {
     })) as { segments?: { start: number; end: number; text: string }[] };
     const segments = z
       .array(segmentSchema)
-      .min(1)
       .max(3000)
       .parse(
         result.segments

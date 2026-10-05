@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Toaster, toast } from "sonner";
+import { AudioQueuePanel } from "@/components/audio-queue-panel";
+import { LessonAudio, type LessonAudioHandle } from "@/components/lesson-audio";
 import { RecorderPanel } from "@/components/recorder-panel";
 import { ReviewPanel } from "@/components/review-panel";
 import { PDFPage } from "@/components/pdf-page";
@@ -67,7 +69,15 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState("n1");
   const [pageNumber, setPageNumber] = useState(1);
   const [dialog, setDialog] = useState<
-    "import" | "settings" | "library" | "export" | "edit" | "record" | "review" | null
+    | "import"
+    | "settings"
+    | "library"
+    | "export"
+    | "edit"
+    | "record"
+    | "review"
+    | "queue"
+    | null
   >(null);
   const [busy, setBusy] = useState("");
   const [status, setStatus] = useState<Status>({
@@ -86,11 +96,14 @@ export default function Home() {
   const [importError, setImportError] = useState("");
   const [editPages, setEditPages] = useState("");
   const [editSegments, setEditSegments] = useState<string[]>([]);
-  const [audioUrl, setAudioUrl] = useState("");
+  const audioUrl = !!record.audio || !!record.recordingSessionId;
   const [playTime, setPlayTime] = useState(0);
-  const player = useRef<HTMLAudioElement>(null);
-  const clipEnd = useRef<number | null>(null);
-  const recordingLock = useCallback((locked: boolean) => setBusy(locked ? "录音尚未保存，请在录音窗口完成操作。" : ""), []);
+  const player = useRef<LessonAudioHandle>(null);
+  const recordingLock = useCallback(
+    (locked: boolean) =>
+      setBusy(locked ? "正在处理录音任务，请在窗口内完成操作。" : ""),
+    [],
+  );
   const lesson = record.lesson;
   const selected =
     lesson.nodes.find((n) => n.id === selectedId) || lesson.nodes[0];
@@ -115,7 +128,6 @@ export default function Home() {
     setSelectedId(next.lesson.nodes[0]?.id || "");
     setPageNumber(next.lesson.pages[0]?.number || 1);
     setTranslation("");
-    clipEnd.current = null;
     setPlayTime(0);
     try {
       localStorage.setItem("lecture-atlas-active", next.lesson.id);
@@ -130,20 +142,13 @@ export default function Home() {
         try {
           id = localStorage.getItem("lecture-atlas-active") || "";
         } catch {}
-        const last = items.find((x) => x.lesson.id === id) || items.find((x) => x.lesson.id === demoLesson.id);
+        const last =
+          items.find((x) => x.lesson.id === id) ||
+          items.find((x) => x.lesson.id === demoLesson.id);
         if (last) activate(last);
       })
       .catch((e) => toast.error(e.message));
   }, [activate, refreshStatus]);
-  useEffect(() => {
-    if (!record.audio) {
-      setAudioUrl("");
-      return;
-    }
-    const url = URL.createObjectURL(record.audio);
-    setAudioUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [record.audio]);
   useEffect(() => {
     setTranslation("");
   }, [lesson.id, pageNumber, selectedId]);
@@ -166,19 +171,10 @@ export default function Home() {
   }
   function chooseNode(n: KnowledgeNode) {
     player.current?.pause();
-    clipEnd.current = null;
     setSelectedId(n.id);
     if (n.pageNumbers.length) setPageNumber(n.pageNumbers[0]);
     const first = lesson.segments.find((s) => s.id === n.segmentIds[0]);
-    if (
-      first &&
-      player.current &&
-      Number.isFinite(player.current.duration) &&
-      first.start < player.current.duration
-    ) {
-      player.current.currentTime = first.start;
-      setPlayTime(first.start);
-    }
+    if (first) player.current?.seek(first, false);
   }
   async function request<T>(
     path: string,
@@ -270,6 +266,7 @@ export default function Home() {
         await persist({
           ...record,
           audio: file,
+          recordingSessionId: undefined,
           lesson: {
             ...lesson,
             audioName: file.name,
@@ -390,30 +387,7 @@ export default function Home() {
     }
   }
   async function playClip(s: Segment) {
-    const audio = player.current;
-    if (!audio) {
-      toast.info(
-        lesson.mode === "demo"
-          ? "示例仅含课件与字幕，没有真实课堂录音。"
-          : "请先添加与字幕对应的录音。",
-      );
-      return;
-    }
-    if (!Number.isFinite(audio.duration)) {
-      toast.info("录音仍在加载，请稍后重试。");
-      return;
-    }
-    if (s.start >= audio.duration) {
-      toast.error("字幕时间超出录音长度，请确认它们来自同一节课、同一时间轴。");
-      return;
-    }
-    audio.currentTime = s.start;
-    clipEnd.current = Math.min(s.end, audio.duration);
-    try {
-      await audio.play();
-    } catch {
-      toast.error("无法播放录音，请检查音频格式。");
-    }
+    player.current?.seek(s, true);
   }
   function openEdit() {
     if (!selected) return;
@@ -518,9 +492,15 @@ export default function Home() {
             课间 <span>LECTURE ATLAS</span>
           </strong>
         </div>
-        <span className="edition">学习工作台 · SECOND EDITION</span>
+        <span className="edition">学习工作台 · THIRD EDITION</span>
         <div className="header-actions">
-          <Button variant="ghost" disabled={!!busy} onClick={() => setDialog("review")}>复习与自测</Button>
+          <Button
+            variant="ghost"
+            disabled={!!busy}
+            onClick={() => setDialog("review")}
+          >
+            复习与自测
+          </Button>
           <Button
             variant="ghost"
             disabled={!!busy}
@@ -749,37 +729,38 @@ export default function Home() {
               <strong>课堂回放</strong>
               <span>{audioUrl ? formatTime(playTime) : "未添加录音"}</span>
             </div>
-            {audioUrl ? (
-              <>
-                <p className="audio-name">{lesson.audioName}</p>
-                <audio
-                  ref={player}
-                  src={audioUrl}
-                  controls
-                  preload="metadata"
-                  onError={() =>
-                    toast.error("浏览器无法解码该音频，请转成 MP3 或 WAV。")
-                  }
-                  onTimeUpdate={() => {
-                    const a = player.current;
-                    if (!a) return;
-                    setPlayTime(a.currentTime);
-                    if (
-                      clipEnd.current !== null &&
-                      a.currentTime >= clipEnd.current
-                    ) {
-                      a.pause();
-                      clipEnd.current = null;
-                    }
-                  }}
-                />
-              </>
-            ) : (
-              <p>选择知识点后，点击讲解片段即可回听。</p>
-            )}
+            <LessonAudio
+              ref={player}
+              audio={record.audio}
+              sessionId={record.recordingSessionId}
+              name={lesson.audioName}
+              onTime={setPlayTime}
+            />
             {lesson.mode !== "demo" && (
               <div className="material-actions">
-                <Button variant="outline" size="sm" disabled={!!busy} onClick={() => { player.current?.pause(); setDialog("record"); }}>录制课堂</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!!busy}
+                  onClick={() => {
+                    player.current?.pause();
+                    void refreshStatus();
+                    setDialog("queue");
+                  }}
+                >
+                  长课录音与转录队列
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!!busy}
+                  onClick={() => {
+                    player.current?.pause();
+                    setDialog("record");
+                  }}
+                >
+                  录制课堂
+                </Button>
                 <label className="file-button">
                   {record.audio ? "更换录音" : "添加录音"}
                   <input
@@ -965,32 +946,123 @@ export default function Home() {
         }}
       >
         <DialogContent className="atlas-dialog" showCloseButton={!busy}>
-          {dialog === "record" && <>
-            <DialogHeader><DialogTitle>录制课堂 · {lesson.title}</DialogTitle><DialogDescription>录制完成后可试听、下载并保存到当前课次。</DialogDescription></DialogHeader>
-            <RecorderPanel hasMaterial={!!record.audio || !!lesson.segments.length} onLock={recordingLock} onAttach={async file => {
-              if (file.size > 24_000_000 || !file.size) throw new Error("音频无效或超过 24 MB，请先下载压缩。");
-              const updated = { ...lesson, audioName: file.name, segments: [], nodes: localOutline(lesson.pages, []), mode: "local" as const, review: {}, updatedAt: new Date().toISOString() };
-              await persist({ ...record, audio: file, lesson: updated });
-              setSelectedId(updated.nodes[0]?.id || "");
-              toast.success("录音已保存。可点击 AI 整理本节课进行转录。");
-            }} />
-          </>}
-          {dialog === "review" && <>
-            <DialogHeader><DialogTitle>复习与自测</DialogTitle><DialogDescription>跨课次回忆知识点，记录掌握情况，并追溯课堂出处。</DialogDescription></DialogHeader>
-            <ReviewPanel records={[record, ...library.filter(item => item.lesson.id !== lesson.id)].filter(item => item.lesson.mode !== "demo" || library.every(saved => saved.lesson.mode === "demo"))} onSave={async next => {
-              setBusy("正在保存复习进度…");
-              try {
-                await saveLesson(next);
-                setLibrary(items => [next, ...items.filter(item => item.lesson.id !== next.lesson.id)]);
-                if (next.lesson.id === lesson.id) setRecord(next);
-              } finally { setBusy(""); }
-            }} onSource={(next, node) => {
-              activate(next);
-              setSelectedId(node.id);
-              setPageNumber(node.pageNumbers[0] || next.lesson.pages[0]?.number || 1);
-              setDialog(null);
-            }} />
-          </>}
+          {dialog === "queue" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>长课录音与转录队列</DialogTitle>
+                <DialogDescription>
+                  每段独立保存，转录后按整节课时间回听。
+                </DialogDescription>
+              </DialogHeader>
+              <AudioQueuePanel
+                lessonId={lesson.id}
+                configured={status.configured}
+                token={token}
+                onLock={recordingLock}
+                onApply={async (sessionId, segments, count) => {
+                  const updated = {
+                    ...lesson,
+                    audioName: `分段课堂录音（${count} 段）`,
+                    segments,
+                    nodes: localOutline(lesson.pages, segments),
+                    mode: "local" as const,
+                    review: {},
+                    updatedAt: new Date().toISOString(),
+                  };
+                  await persist({
+                    ...record,
+                    audio: undefined,
+                    recordingSessionId: sessionId,
+                    lesson: updated,
+                  });
+                  setSelectedId(updated.nodes[0]?.id || "");
+                  setPlayTime(0);
+                }}
+              />
+            </>
+          )}
+          {dialog === "record" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>录制课堂 · {lesson.title}</DialogTitle>
+                <DialogDescription>
+                  录制完成后可试听、下载并保存到当前课次。
+                </DialogDescription>
+              </DialogHeader>
+              <RecorderPanel
+                hasMaterial={
+                  !!record.audio ||
+                  !!record.recordingSessionId ||
+                  !!lesson.segments.length
+                }
+                onLock={recordingLock}
+                onAttach={async (file) => {
+                  if (file.size > 24_000_000 || !file.size)
+                    throw new Error("音频无效或超过 24 MB，请先下载压缩。");
+                  const updated = {
+                    ...lesson,
+                    audioName: file.name,
+                    segments: [],
+                    nodes: localOutline(lesson.pages, []),
+                    mode: "local" as const,
+                    review: {},
+                    updatedAt: new Date().toISOString(),
+                  };
+                  await persist({
+                    ...record,
+                    audio: file,
+                    recordingSessionId: undefined,
+                    lesson: updated,
+                  });
+                  setSelectedId(updated.nodes[0]?.id || "");
+                  toast.success("录音已保存。可点击 AI 整理本节课进行转录。");
+                }}
+              />
+            </>
+          )}
+          {dialog === "review" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>复习与自测</DialogTitle>
+                <DialogDescription>
+                  跨课次回忆知识点，记录掌握情况，并追溯课堂出处。
+                </DialogDescription>
+              </DialogHeader>
+              <ReviewPanel
+                records={[
+                  record,
+                  ...library.filter((item) => item.lesson.id !== lesson.id),
+                ].filter(
+                  (item) =>
+                    item.lesson.mode !== "demo" ||
+                    library.every((saved) => saved.lesson.mode === "demo"),
+                )}
+                onSave={async (next) => {
+                  setBusy("正在保存复习进度…");
+                  try {
+                    await saveLesson(next);
+                    setLibrary((items) => [
+                      next,
+                      ...items.filter(
+                        (item) => item.lesson.id !== next.lesson.id,
+                      ),
+                    ]);
+                    if (next.lesson.id === lesson.id) setRecord(next);
+                  } finally {
+                    setBusy("");
+                  }
+                }}
+                onSource={(next, node) => {
+                  activate(next);
+                  setSelectedId(node.id);
+                  setPageNumber(
+                    node.pageNumbers[0] || next.lesson.pages[0]?.number || 1,
+                  );
+                  setDialog(null);
+                }}
+              />
+            </>
+          )}
           {dialog === "import" && (
             <>
               <DialogHeader>

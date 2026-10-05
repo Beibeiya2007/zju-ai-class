@@ -1,11 +1,38 @@
 import type { Lesson } from "./types";
-export type SavedLesson = { lesson: Lesson; document?: Blob; audio?: Blob };
-function database(): Promise<IDBDatabase> {
+export type SavedLesson = {
+  lesson: Lesson;
+  document?: Blob;
+  audio?: Blob;
+  recordingSessionId?: string;
+};
+export function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open("lecture-atlas", 1);
-    r.onupgradeneeded = () =>
-      r.result.createObjectStore("lessons", { keyPath: "lesson.id" });
-    r.onsuccess = () => resolve(r.result);
+    const r = indexedDB.open("lecture-atlas", 2);
+    let blocked = false;
+    r.onupgradeneeded = () => {
+      if (!r.result.objectStoreNames.contains("lessons"))
+        r.result.createObjectStore("lessons", { keyPath: "lesson.id" });
+      if (!r.result.objectStoreNames.contains("recording-sessions"))
+        r.result.createObjectStore("recording-sessions", { keyPath: "id" });
+      if (!r.result.objectStoreNames.contains("audio-parts")) {
+        const parts = r.result.createObjectStore("audio-parts", {
+          keyPath: "id",
+        });
+        parts.createIndex("sessionId", "sessionId");
+      }
+    };
+    r.onblocked = () => {
+      blocked = true;
+      reject(new Error("请关闭其他打开课间的标签页，再重试以升级本地资料库。"));
+    };
+    r.onsuccess = () => {
+      if (blocked) {
+        r.result.close();
+        return;
+      }
+      r.result.onversionchange = () => r.result.close();
+      resolve(r.result);
+    };
     r.onerror = () =>
       reject(
         new Error("无法打开本地资料库。请允许浏览器存储，或导出当前笔记。"),
