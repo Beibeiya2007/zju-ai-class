@@ -1,1 +1,58 @@
-m´ÎàßΩ©bu™‡∫gß∂◊¨∂œ⁄â '~(-zÀm±KÅÊ⁄±Ó∏ÿ[ûÈ¢äw‚ïÍ(∫◊‚ïÊ€≠Ê§n∑öëÈ‹°◊ù¢Îi∫€©ä{hñ)ﬁ≤áÂzx-Ü{¶◊^rá^uÁ(uËß¶ÎaÖÈiv+)ï¨≠Ü+&zÀÅË¢ûõ≠äznµ¯•y◊üjÈm~äÏµÿß¢ã≠¶Îh∫⁄nµ¯•y◊üjÈm~äÏµ⁄.
+import assert from "node:assert/strict";
+import test from "node:test";
+import { textAIConfig, transcriptionAIConfig } from "../lib/ai-config.ts";
+
+test("DeepSeek is the default text provider with its documented base URL and model", () => {
+  assert.deepEqual(textAIConfig({ DEEPSEEK_API_KEY: "secret" }), {
+    apiKey: "secret",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-flash",
+    provider: "DeepSeek",
+  });
+});
+
+test("DeepSeek can use a custom compatible gateway and model", () => {
+  assert.deepEqual(
+    textAIConfig({
+      DEEPSEEK_API_KEY: "secret",
+      DEEPSEEK_BASE_URL: "https://gateway.example/v1/",
+      DEEPSEEK_TEXT_MODEL: "deepseek-v4-pro",
+    }),
+    {
+      apiKey: "secret",
+      baseUrl: "https://gateway.example/v1",
+      model: "deepseek-v4-pro",
+      provider: "DeepSeek",
+    },
+  );
+});
+
+test("existing OpenAI text and transcription settings remain supported", () => {
+  assert.equal(
+    textAIConfig({ OPENAI_API_KEY: "openai-key" }).baseUrl,
+    "https://api.openai.com/v1",
+  );
+  assert.deepEqual(transcriptionAIConfig({ OPENAI_API_KEY: "openai-key" }), {
+    apiKey: "openai-key",
+    baseUrl: "https://api.openai.com/v1",
+    model: "whisper-1",
+    provider: "ËØ≠Èü≥ËΩ¨ÂÜôÊúçÂä°",
+  });
+});
+
+test("transcription can be configured independently from DeepSeek text", () => {
+  assert.deepEqual(
+    transcriptionAIConfig({
+      TRANSCRIPTION_API_KEY: "asr-key",
+      TRANSCRIPTION_API_BASE_URL: "https://asr.example/v1/",
+      TRANSCRIPTION_MODEL: "whisper-compatible-model",
+      TRANSCRIPTION_PROVIDER: "ASR ÊúçÂä°",
+    }),
+    {
+      apiKey: "asr-key",
+      baseUrl: "https://asr.example/v1",
+      model: "whisper-compatible-model",
+      provider: "ASR ÊúçÂä°",
+    },
+  );
+});
